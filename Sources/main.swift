@@ -7,29 +7,24 @@ import SwiftSoup
 import SwiftTUI
 
 enum Status {
-    case pending
-    case loading
-    case error
+    case pending, loading, error
 }
 
 struct MyTerminalView: View {
     @State private var torrentLinks: [String] = []
-    @State private var magnetLink: String?
-    @State private var search: String = "" // maybe wont use use
+    @State private var search: String = ""
     @State private var output: String = ""
 
     var body: some View {
         VStack {
-            var status = Status.pending
             HStack {
                 Text("What would you like to search for?!")
                 TextField { input in
                     search = input
-                    print("\n new log: \(search)")
                     fetchHTML(from: "https://1337x.to/search/\(search)/1/") { result in
                         switch result {
                         case let .success(html):
-                            torrentLinks = parseHTML(html, searchTerm: search)
+                            torrentLinks = parseHTML(html)
                         case let .failure(error):
                             print("Error fetching HTML: \(error)")
                         }
@@ -43,17 +38,14 @@ struct MyTerminalView: View {
                     fetchTorrentFileLink(from: link) { result in
                         if let torrentLink = result {
                             output = downloadTorrentFile(from: torrentLink)
-                            openFile()
-
+                            openFile(at: output)
                         } else {
                             print("No torrent link found.")
                         }
                     }
                 }
             }
-            Text("Downloading")
             Text("Download Status: \(output)")
-
             Spacer()
         }
     }
@@ -67,105 +59,32 @@ struct MyApp {
 }
 
 func fetchHTML(from url: String, completion: @escaping (Result<String, Error>) -> Void) {
-    print("fetch html")
     AF.request(url).responseString { response in
         switch response.result {
         case let .success(html):
-            print("success")
             completion(.success(html))
         case let .failure(error):
-            print("fail")
             completion(.failure(error))
         }
     }
 }
 
-func parseHTML(_ html: String, searchTerm _: String) -> [String] {
-    var torrentLinks: [String] = []
+func parseHTML(_ html: String) -> [String] {
     do {
         let document = try SwiftSoup.parse(html)
-        let rows = try document.select("tbody tr")
-
-        for row in rows {
-            let cells = try row.select("td")
-            for cell in cells {
-                if try cell.hasClass("coll-1 name") { // Target the correct cell
-                    let links = try cell.select("a[href]") // Select all <a> tags with href attribute
-                    for link in links {
-                        if try !link.hasClass("icon") { // Exclude the <a> tag with class "icon"
-                            let href = try link.attr("href")
-                            let torrentLink = "https://1337x.to\(href)"
-                            torrentLinks.append(torrentLink)
-                        }
-                    }
-                }
-            }
+        let links = try document.select("a[href]").compactMap { link -> String? in
+            let href = try link.attr("href")
+            return href.contains("/torrent/") && !href.contains("/user/") ? "https://1337x.to\(href)" : nil
         }
+        return links
     } catch {
         print("Error parsing HTML: \(error)")
-    }
-    return torrentLinks
-}
-
-func downloadMagnetLink(_ magnetLink: String) -> Int32 {
-    let task = Process()
-    task.launchPath = "/usr/bin/env"
-    task.arguments = ["transmission-remote", "--add", magnetLink]
-
-    let pipe = Pipe()
-    task.standardOutput = pipe
-    task.standardError = pipe
-
-    task.launch()
-    task.waitUntilExit()
-
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    let output = String(data: data, encoding: .utf8) ?? ""
-    // print("Command output: \(output)")
-    print("Task terminated with status: \(task.terminationStatus)")
-
-    // Optionally add a command to refresh Transmission
-    let refreshTask = Process()
-    refreshTask.launchPath = "/usr/bin/env"
-    refreshTask.arguments = ["transmission-remote", "--list"] // This may trigger a refresh
-    refreshTask.launch()
-    refreshTask.waitUntilExit()
-    return task.terminationStatus
-}
-
-func fetchTorrentFileLink(from url: String, completion: @escaping (String?) -> Void) {
-    AF.request(url).responseString { response in
-        switch response.result {
-        case let .success(html):
-            do {
-                let document = try SwiftSoup.parse(html)
-                if let dropdownMenu = try document.select("ul.dropdown-menu").first() {
-                    // Find all links within the dropdown menu
-                    let torrentLinks = try dropdownMenu.select("a[href$=.torrent]")
-                    if let torrentLink = try torrentLinks.first()?.attr("href") {
-                        // print("torrent link \(torrentLink)")
-                        completion(torrentLink)
-                    } else {
-                        completion(nil)
-                    }
-                } else {
-                    completion(nil)
-                }
-            } catch {
-                print("Error parsing HTML: \(error)")
-                completion(nil)
-            }
-        case let .failure(error):
-            print("Error fetching URL: \(error)")
-            completion(nil)
-        }
+        return []
     }
 }
 
 func downloadTorrentFile(from link: String) -> String {
-    let homeDirectory = FileManager.default.homeDirectoryForCurrentUser.path
-    let downloadPath = "\(homeDirectory)/Downloads/torrent_file.torrent"
-
+    let downloadPath = "\(FileManager.default.homeDirectoryForCurrentUser.path)/Downloads/torrent_file.torrent"
     let task = Process()
     task.launchPath = "/usr/bin/env"
     task.arguments = ["curl", "-L", "-o", downloadPath, link]
@@ -173,72 +92,32 @@ func downloadTorrentFile(from link: String) -> String {
     let pipe = Pipe()
     task.standardOutput = pipe
     task.standardError = pipe
-
     task.launch()
     task.waitUntilExit()
 
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    let output = String(data: data, encoding: .utf8) ?? ""
-    // print("Download output: \(output)")
-    return output
+    return downloadPath
 }
 
-func openFile() {
-    let homeDirectory = FileManager.default.homeDirectoryForCurrentUser.path
-    let downloadPath = "\(homeDirectory)/Downloads/torrent_file.torrent"
-
+func openFile(at path: String) {
     let task = Process()
     task.launchPath = "/usr/bin/env"
-    task.arguments = ["open", downloadPath]
-    let pipe = Pipe()
-    task.standardOutput = pipe
-    task.standardError = pipe
-
+    task.arguments = ["open", path]
     task.launch()
     task.waitUntilExit()
 }
 
-func fetchAndSimulateButtonClick(from url: String, completion: @escaping (String?) -> Void) {
+func fetchTorrentFileLink(from url: String, completion: @escaping (String?) -> Void) {
     AF.request(url).responseString { response in
-        switch response.result {
-        case let .success(html):
-            do {
-                let document = try SwiftSoup.parse(html)
-                if let linkElement = try document.getElementById("openPopup") {
-                    let magnetLink = try linkElement.attr("href")
-                    completion(magnetLink)
-                } else {
-                    completion(nil)
-                }
-            } catch {
-                print("Error parsing HTML: \(error)")
-                completion(nil)
-            }
-        case let .failure(error):
-            print("Error fetching URL: \(error)")
+        guard case let .success(html) = response.result else {
             completion(nil)
+            return
         }
-    }
-}
-
-func fetchPopupButton(from url: String, completion: @escaping (String?) -> Void) {
-    AF.request(url).responseString { response in
-        switch response.result {
-        case let .success(html):
-            do {
-                let document = try SwiftSoup.parse(html)
-                if let button = try document.getElementById("openPopup") {
-                    let buttonText = try button.text()
-                    completion(buttonText)
-                } else {
-                    completion(nil)
-                }
-            } catch {
-                print("Error parsing HTML: \(error)")
-                completion(nil)
-            }
-        case let .failure(error):
-            print("Error fetching URL: \(error)")
+        do {
+            let document = try SwiftSoup.parse(html)
+            let torrentLink = try document.select("a[href$=.torrent]").first()?.attr("href")
+            completion(torrentLink)
+        } catch {
+            print("Error parsing HTML: \(error)")
             completion(nil)
         }
     }
