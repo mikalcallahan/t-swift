@@ -1,0 +1,28 @@
+{
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "sourceLanguages": [
+        "swift"
+      ],
+      "name": "Debug t-swift",
+      "program": "${workspaceFolder:t-swift}/.build/debug/t-swift",
+      "args": [],
+      "cwd": "${workspaceFolder:t-swift}",
+      "preLaunchTask": "swift: Build Debug t-swift"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "sourceLanguages": [
+        "swift"
+      ],
+      "name": "Release t-swift",
+      "program": "${workspaceFolder:t-swift}/.build/release/t-swift",
+      "args": [],
+      "cwd": "${workspaceFolder:t-swift}",
+      "preLaunchTask": "swift: Build Release t-swift"
+    }
+  ]
+}
