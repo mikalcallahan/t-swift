@@ -34,6 +34,8 @@
   swift run t-swift
   ```
 
+![demo](./assets/arch-demo.gif)
+
 ## Contributing
 
 Contributions are welcome! Please fork the repository and submit a pull request.
